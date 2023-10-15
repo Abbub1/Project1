@@ -30,9 +30,9 @@ func main() {
 	// First-come, first-serve scheduling
 	FCFSSchedule(os.Stdout, "First-come, first-serve", processes)
 
-	//SJFSchedule(os.Stdout, "Shortest-job-first", processes)
+	SJFSchedule(os.Stdout, "Shortest-job-first", processes)
 	//
-	//SJFPrioritySchedule(os.Stdout, "Priority", processes)
+	SJFPrioritySchedule(os.Stdout, "Priority", processes)
 	//
 	//RRSchedule(os.Stdout, "Round-robin", processes)
 }
@@ -127,11 +127,373 @@ func FCFSSchedule(w io.Writer, title string, processes []Process) {
 	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
 }
 
-//func SJFPrioritySchedule(w io.Writer, title string, processes []Process) { }
-//
-//func SJFSchedule(w io.Writer, title string, processes []Process) { }
-//
-//func RRSchedule(w io.Writer, title string, processes []Process) { }
+/*
+SJFPrioritySchedule outputs a schedule of processes in a GANTT chart and a table of timing given:
+•	an output writer
+•	a title for the chart
+•	a slice of processes
+*/
+func SJFPrioritySchedule(w io.Writer, title string, processes []Process) {
+	var (
+		serviceTime       int64
+		totalWait         float64
+		totalTurnaround   float64
+		lastCompletion    float64
+		waitingTime       int64
+		timeSpent         int64
+		incomingProcesses int
+		arrivedProcesses  int64
+		finishedProcesses int64
+		schedule          = make([][]string, len(processes))
+		gantt             = make([]TimeSlice, 0)
+		//processes that have yet to arrive
+		notArrived = make([]Process, len(processes))
+		//processes that have arrived but not run
+		waiting = make([]Process, len(processes))
+		//processes that have finished running
+		alreadyRun = make([]Process, len(processes))
+	)
+	//Organize processes by arrival time
+	copy(notArrived, processes)
+
+	timeSpent = 0
+	incomingProcesses = len(notArrived)
+	arrivedProcesses = 0
+	finishedProcesses = 0
+
+	for k := 0; k < len(processes); k++ {
+		//sort incoming processes
+		for j := 0; j < incomingProcesses; j++ {
+			for i := 0; i < incomingProcesses-1; i++ {
+				if notArrived[i].ArrivalTime > notArrived[i+1].ArrivalTime {
+					notArrived[i], notArrived[i+1] = swap(notArrived[i], notArrived[i+1])
+				}
+			}
+		}
+
+		//receive processes
+		for i := 0; i < incomingProcesses; i++ {
+			if notArrived[i].ArrivalTime <= timeSpent {
+				waiting[arrivedProcesses] = notArrived[i]
+				incomingProcesses--
+				for j := i; j < incomingProcesses; j++ {
+					waiting[j], waiting[j+1] = swap(waiting[j], waiting[j+1])
+				}
+				arrivedProcesses++
+				//need to check current position again
+				i--
+			}
+		}
+
+		//schedule next process
+		for i := 0; i < int(arrivedProcesses); i++ {
+			for j := 0; j < int(arrivedProcesses-1); j++ {
+				if waiting[j].Priority > waiting[j+1].Priority {
+					waiting[j], waiting[j+1] = swap(waiting[j], waiting[i+j])
+				}
+			}
+		}
+
+		//run next process
+		alreadyRun[finishedProcesses] = waiting[0]
+		timeSpent += alreadyRun[finishedProcesses].BurstDuration
+		finishedProcesses++
+		arrivedProcesses--
+		waiting[0], waiting[arrivedProcesses] = swap(waiting[0], waiting[arrivedProcesses])
+
+		//increase priority for waiting processes
+		for i := 0; i < int(arrivedProcesses); i++ {
+			if waiting[i].Priority > 1 {
+				waiting[i].Priority--
+			}
+		}
+	}
+
+	for i := range processes {
+		if processes[i].ArrivalTime > 0 {
+			waitingTime = serviceTime - processes[i].ArrivalTime
+		}
+		totalWait += float64(waitingTime)
+
+		start := waitingTime + processes[i].ArrivalTime
+
+		turnaround := processes[i].BurstDuration + waitingTime
+		totalTurnaround += float64(turnaround)
+
+		completion := processes[i].BurstDuration + processes[i].ArrivalTime + waitingTime
+		lastCompletion = float64(completion)
+
+		schedule[i] = []string{
+			fmt.Sprint(processes[i].ProcessID),
+			fmt.Sprint(processes[i].Priority),
+			fmt.Sprint(processes[i].BurstDuration),
+			fmt.Sprint(processes[i].ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaround),
+			fmt.Sprint(completion),
+		}
+		serviceTime += processes[i].BurstDuration
+
+		gantt = append(gantt, TimeSlice{
+			PID:   processes[i].ProcessID,
+			Start: start,
+			Stop:  serviceTime,
+		})
+	}
+
+	count := float64(len(processes))
+	aveWait := totalWait / count
+	aveTurnaround := totalTurnaround / count
+	aveThroughput := count / lastCompletion
+
+	outputTitle(w, title)
+	outputGantt(w, gantt)
+	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
+}
+
+/*
+SJFSchedule outputs a schedule of processes in a GANTT chart and a table of timing given:
+•	an output writer
+•	a title for the chart
+•	a slice of processes
+*/
+func SJFSchedule(w io.Writer, title string, processes []Process) {
+	var (
+		serviceTime       int64
+		totalWait         float64
+		totalTurnaround   float64
+		lastCompletion    float64
+		waitingTime       int64
+		timeSpent         int64
+		incomingProcesses int
+		arrivedProcesses  int64
+		finishedProcesses int64
+		schedule          = make([][]string, len(processes))
+		gantt             = make([]TimeSlice, 0)
+		//processes that have yet to arrive
+		notArrived = make([]Process, len(processes))
+		//processes that have arrived but not run
+		waiting = make([]Process, len(processes))
+		//processes that have finished running
+		alreadyRun = make([]Process, len(processes))
+	)
+
+	//Organize processes by arrival time
+	copy(notArrived, processes)
+
+	timeSpent = 0
+	incomingProcesses = len(notArrived)
+	arrivedProcesses = 0
+	finishedProcesses = 0
+
+	for k := 0; k < len(processes); k++ {
+		//sort incoming processes
+		for j := 0; j < incomingProcesses; j++ {
+			for i := 0; i < incomingProcesses-1; i++ {
+				if notArrived[i].ArrivalTime > notArrived[i+1].ArrivalTime {
+					notArrived[i], notArrived[i+1] = swap(notArrived[i], notArrived[i+1])
+				}
+			}
+		}
+
+		//receive processes
+		for i := 0; i < incomingProcesses; i++ {
+			if notArrived[i].ArrivalTime <= timeSpent {
+				waiting[arrivedProcesses] = notArrived[i]
+				incomingProcesses--
+				for j := i; j < incomingProcesses; j++ {
+					waiting[j], waiting[j+1] = swap(waiting[j], waiting[j+1])
+				}
+				arrivedProcesses++
+				//need to check current position again
+				i--
+			}
+		}
+
+		//schedule next process
+		for i := 0; i < int(arrivedProcesses); i++ {
+			for j := 0; j < int(arrivedProcesses-1); j++ {
+				if waiting[j].BurstDuration > waiting[j+1].BurstDuration {
+					waiting[j], waiting[j+1] = swap(waiting[j], waiting[i+j])
+				}
+			}
+		}
+
+		//run next process
+		alreadyRun[finishedProcesses] = waiting[0]
+		timeSpent += alreadyRun[finishedProcesses].BurstDuration
+		finishedProcesses++
+		arrivedProcesses--
+		waiting[0], waiting[arrivedProcesses] = swap(waiting[0], waiting[arrivedProcesses])
+	}
+
+	for i := range alreadyRun {
+		if alreadyRun[i].ArrivalTime > 0 {
+			waitingTime = serviceTime - alreadyRun[i].ArrivalTime
+		}
+		totalWait += float64(waitingTime)
+
+		start := waitingTime + alreadyRun[i].ArrivalTime
+
+		turnaround := alreadyRun[i].BurstDuration + waitingTime
+		totalTurnaround += float64(turnaround)
+
+		completion := alreadyRun[i].BurstDuration + alreadyRun[i].ArrivalTime + waitingTime
+		lastCompletion = float64(completion)
+
+		schedule[i] = []string{
+			fmt.Sprint(alreadyRun[i].ProcessID),
+			fmt.Sprint(alreadyRun[i].Priority),
+			fmt.Sprint(alreadyRun[i].BurstDuration),
+			fmt.Sprint(alreadyRun[i].ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaround),
+			fmt.Sprint(completion),
+		}
+		serviceTime += alreadyRun[i].BurstDuration
+
+		gantt = append(gantt, TimeSlice{
+			PID:   alreadyRun[i].ProcessID,
+			Start: start,
+			Stop:  serviceTime,
+		})
+	}
+
+	count := float64(len(alreadyRun))
+	aveWait := totalWait / count
+	aveTurnaround := totalTurnaround / count
+	aveThroughput := count / lastCompletion
+
+	outputTitle(w, title)
+	outputGantt(w, gantt)
+	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
+}
+
+/*
+RRSchedule outputs a schedule of processes in a GANTT chart and a table of timing given:
+•	an output writer
+•	a title for the chart
+•	a slice of processes
+*/
+func RRSchedule(w io.Writer, title string, processes []Process) {
+	var (
+		serviceTime       int64
+		totalWait         float64
+		totalTurnaround   float64
+		lastCompletion    float64
+		waitingTime       int64
+		timeSpent         int64
+		incomingProcesses int
+		arrivedProcesses  int64
+		finishedProcesses int64
+		schedule          = make([][]string, len(processes))
+		gantt             = make([]TimeSlice, 0)
+		//processes that have yet to arrive
+		notArrived = make([]Process, len(processes))
+		//processes that have arrived but not run
+		waiting = make([]Process, len(processes))
+		//remaining burst count for a process
+		burstLeft = make([]int64, len(processes))
+		//processes that have finished running
+		alreadyRun = make([]Process, len(processes))
+	)
+
+	copy(notArrived, processes)
+
+	timeSpent = 0
+	incomingProcesses = len(notArrived)
+	arrivedProcesses = 0
+	finishedProcesses = 0
+	//sort incoming processes
+	for j := 0; j < len(notArrived); j++ {
+		for i := 0; i < len(notArrived)-1; i++ {
+			if notArrived[i].ArrivalTime > notArrived[i+1].ArrivalTime {
+				notArrived[i], notArrived[i+1] = swap(notArrived[i], notArrived[i+1])
+			}
+		}
+	}
+
+	for finishedProcesses = 0; finishedProcesses < int64(len(processes)); {
+		//run a process for one time slice
+		if arrivedProcesses != 0 {
+			//decrease its burst count (separate var), increase timeSpent
+			burstLeft[0]--
+			timeSpent++
+
+			//move process to the back
+			for i := 0; i < int(arrivedProcesses)-1; i++ {
+				waiting[i], waiting[i+1] = swap(waiting[i], waiting[i+1])
+				burstLeft[i], burstLeft[i+1] = swapInt(burstLeft[i], burstLeft[i+1])
+			}
+
+			//check it if is finished
+
+			//if finished, add it to alreadyRun, decrease arrivedProcesses, increase finishedProcesses
+			if burstLeft[arrivedProcesses-1] == 0 {
+				arrivedProcesses--
+				alreadyRun[finishedProcesses] = waiting[arrivedProcesses]
+				finishedProcesses++
+			}
+
+		}
+		//check for new processes
+		//receive processes
+		for i := 0; i < incomingProcesses; i++ {
+			if notArrived[i].ArrivalTime <= timeSpent {
+				waiting[arrivedProcesses] = notArrived[i]
+				incomingProcesses--
+				for j := i; j < incomingProcesses; j++ {
+					waiting[j], waiting[j+1] = swap(waiting[j], waiting[j+1])
+				}
+				arrivedProcesses++
+				//need to check current position again
+				i--
+			}
+		}
+
+	}
+
+	for i := range processes {
+		if processes[i].ArrivalTime > 0 {
+			waitingTime = serviceTime - processes[i].ArrivalTime
+		}
+		totalWait += float64(waitingTime)
+
+		start := waitingTime + processes[i].ArrivalTime
+
+		turnaround := processes[i].BurstDuration + waitingTime
+		totalTurnaround += float64(turnaround)
+
+		completion := processes[i].BurstDuration + processes[i].ArrivalTime + waitingTime
+		lastCompletion = float64(completion)
+
+		schedule[i] = []string{
+			fmt.Sprint(processes[i].ProcessID),
+			fmt.Sprint(processes[i].Priority),
+			fmt.Sprint(processes[i].BurstDuration),
+			fmt.Sprint(processes[i].ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaround),
+			fmt.Sprint(completion),
+		}
+		serviceTime += processes[i].BurstDuration
+
+		gantt = append(gantt, TimeSlice{
+			PID:   processes[i].ProcessID,
+			Start: start,
+			Stop:  serviceTime,
+		})
+	}
+
+	count := float64(len(processes))
+	aveWait := totalWait / count
+	aveTurnaround := totalTurnaround / count
+	aveThroughput := count / lastCompletion
+
+	outputTitle(w, title)
+	outputGantt(w, gantt)
+	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
+}
 
 //endregion
 
@@ -206,6 +568,19 @@ func mustStrToInt(s string) int64 {
 	}
 
 	return i
+}
+
+//endregion
+
+//region Additional functions
+
+// Swaps two processes with each other
+func swap(p1 Process, p2 Process) (Process, Process) {
+	return p2, p1
+}
+
+func swapInt(i1 int64, i2 int64) (int64, int64) {
+	return i2, i1
 }
 
 //endregion

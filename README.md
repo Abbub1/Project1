@@ -12,6 +12,9 @@ Concepts in operating system analysis and design. General topics of process, res
 You can't take an operating systems class without programming a process scheduler.  It's against the Geneva code or something.
 Design a program that implements several different CPU scheduling algorithms.
 
+## Additional Resources
+I added two functions to the program to swap values between two variables.
+
 
 ## [Project 2: Shell Builtins](https://github.com/jh125486/CSCE4600/tree/main/Project2)
 
